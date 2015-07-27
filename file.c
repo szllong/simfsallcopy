@@ -184,7 +184,7 @@ static int nvmm_consistency_function(struct super_block *sb, struct inode *norma
 	struct nvmm_inode *con_nvmm_inode;
 	struct nvmm_inode_info *normal_i_info, *consistency_i_info;
 	unsigned long normal_vaddr, consistency_vaddr;
-	unsigned long need_block_size, need_blocks, exist_blocks, alloc_blocks;
+	unsigned long need_blocks, exist_blocks, alloc_blocks;
 	unsigned long blocksize;
 	int ret = 0;
 	void *write_start_vaddr;
@@ -209,7 +209,7 @@ static int nvmm_consistency_function(struct super_block *sb, struct inode *norma
 
 	write_start_vaddr = (void *)(consistency_vaddr + offset);
 	ret = nvmm_iov_copy_from(write_start_vaddr, iter, length);
-	memcpy(normal_vaddr + (unsigned long)offset, consistency_vaddr + (unsigned long)offset, length);
+	memcpy((void *)(normal_vaddr + (unsigned long)offset), (void *)(consistency_vaddr + (unsigned long)offset), length);
 	ret = nvmm_destroy_mapping(consistency_i);
 
 	return ret;
