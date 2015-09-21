@@ -20,10 +20,6 @@
 #include "xip.h"
 #include "xattr.h"
 
-#define PUD_SIZE_1 (PUD_SIZE - 1)
-#define PMD_SIZE_1 (PMD_SIZE  -1)
-#define PAGE_SIZE_1 (PAGE_SIZE - 1)
-
 /*
  * input :
  * @vaddr : start virtual address
@@ -139,9 +135,12 @@ static size_t nvmm_iov_copy_to(void *from, struct iov_iter *i, size_t bytes)
 static int nvmm_open_file(struct inode *inode, struct file *filp)
 {
 	int errval = 0;
-//	pid_t pid = current->pid;
+	struct inode *consistency_i;
+	struct super_block *sb;
+	sb = inode->i_sb;
+	consistency_i = NVMM_SB(sb)->consistency_i;
 	errval = nvmm_establish_mapping(inode);
-//	printk("the process pid is : %d\n", pid);
+	errval = nvmm_establish_mapping(consistency_i);
 	if(errval){
 		nvmm_error(inode->i_sb, __FUNCTION__, "can't establish mapping\n");
 		return errval;
@@ -161,12 +160,18 @@ static int nvmm_release_file(struct file * file)
     struct inode *inode = file->f_mapping->host;
 	struct nvmm_inode_info *ni_info;
 	unsigned long vaddr;
+	struct super_block *sb;
+	struct inode *consistency_i;
 	int err = 0;
+	sb = inode->i_sb;
+	consistency_i = NVMM_SB(sb)->consistency_i;
 	ni_info = NVMM_I(inode);
 	vaddr = (unsigned long)ni_info->i_virt_addr;
 	if(vaddr){
-		if(atomic_dec_and_test(&ni_info->i_p_counter))
+		if(atomic_dec_and_test(&ni_info->i_p_counter)){
 			err = nvmm_destroy_mapping(inode);
+			err = nvmm_destroy_mapping(consistency_i);
+		}
 
 //		printk("release, ino = %ld, process num = %d, vaddr = %lx\n", inode->i_ino, (ni_info->i_p_counter).counter, vaddr);
 
@@ -181,36 +186,17 @@ static int nvmm_release_file(struct file * file)
 static int nvmm_consistency_function(struct super_block *sb, struct inode *normal_i, loff_t offset, size_t length, struct iov_iter *iter)
 {
 	struct inode *consistency_i;
-	struct nvmm_inode *con_nvmm_inode;
 	struct nvmm_inode_info *normal_i_info, *consistency_i_info;
-	unsigned long normal_vaddr, consistency_vaddr;
-	unsigned long need_blocks, exist_blocks, alloc_blocks;
-	unsigned long blocksize;
+	void *normal_vaddr, *consistency_vaddr;
 	int ret = 0;
-	void *write_start_vaddr;
 
-	blocksize = sb->s_blocksize;
 	consistency_i = NVMM_SB(sb)->consistency_i;
-	con_nvmm_inode = nvmm_get_inode(sb, consistency_i->i_ino);
-	if(!con_nvmm_inode->i_pg_addr)
-		nvmm_init_pg_table(sb, consistency_i->i_ino);
-	ret = nvmm_establish_mapping(consistency_i);
 	consistency_i_info = NVMM_I(consistency_i);
 	normal_i_info = NVMM_I(normal_i);
-	normal_vaddr = (unsigned long)normal_i_info->i_virt_addr;
-	consistency_vaddr = (unsigned long)consistency_i_info->i_virt_addr;
-
-	need_blocks = (offset + length + blocksize - 1) >> sb->s_blocksize_bits;
-	exist_blocks = consistency_i->i_blocks;
-	if(need_blocks > exist_blocks){
-		alloc_blocks = need_blocks - exist_blocks;
-		nvmm_alloc_blocks(consistency_i, alloc_blocks);
-	}
-
-	write_start_vaddr = (void *)(consistency_vaddr + offset);
-	ret = nvmm_iov_copy_from(write_start_vaddr, iter, length);
-	memcpy((void *)(normal_vaddr + (unsigned long)offset), (void *)(consistency_vaddr + (unsigned long)offset), length);
-	ret = nvmm_destroy_mapping(consistency_i);
+	normal_vaddr = normal_i_info->i_virt_addr + offset;
+	consistency_vaddr = consistency_i_info->i_virt_addr;
+	ret = nvmm_iov_copy_from(consistency_vaddr, iter, length);
+	memcpy(normal_vaddr, consistency_vaddr, length);
 
 	return ret;
 }
@@ -272,13 +258,13 @@ ssize_t nvmm_direct_IO(int rw, struct kiocb *iocb,
 		}
 
 		nvmm_consistency_function(sb, inode, offset, length, &iter);
-		retval = length;
-/*		retval = nvmm_iov_copy_from(start_vaddr, &iter, length);
+
+//		retval = nvmm_iov_copy_from(start_vaddr, &iter, length);
 		if(retval != length){
 			retval = -EFAULT;
 			goto out;
 		}
-*/
+
 	}
 
 out :
