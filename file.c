@@ -248,7 +248,7 @@ ssize_t nvmm_direct_IO(int rw, struct kiocb *iocb,
         pages_to_alloc = pages_needed - pages_exist;
 
 		if(pages_to_alloc > 0){
-		
+//			printk("pages_to_alloc = %ld\n", pages_to_alloc);
 			retval = nvmm_alloc_blocks(inode, pages_to_alloc);
 	
 			if (retval){
@@ -257,9 +257,16 @@ ssize_t nvmm_direct_IO(int rw, struct kiocb *iocb,
 			}
 		}
 
-		nvmm_consistency_function(sb, inode, offset, length, &iter);
+//		printk("offset = %ld, size = %ld, length = %ld\n", offset, size, length);
+		if(offset == size){
+			retval = nvmm_iov_copy_from(start_vaddr, &iter, length);
+//			printk("this is normal way\n");
+		}else{
+			retval = nvmm_consistency_function(sb, inode, offset, length, &iter);
+//			printk("this is consistency way\n");
+		}
+		
 
-//		retval = nvmm_iov_copy_from(start_vaddr, &iter, length);
 		if(retval != length){
 			retval = -EFAULT;
 			goto out;
